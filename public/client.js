@@ -46,13 +46,13 @@ ws.onclose = (event) => {
 
 // Wrap DOM interactions in DOMContentLoaded
 document.addEventListener('DOMContentLoaded', () => {
-    // Add mining controls and public key display to HTML
+    // Add mining controls to HTML
     document.getElementById('keyControls').innerHTML += `
         <div id="miningControls" style="margin-top: 10px;">
             <button id="startMining" disabled>Start Mining</button>
             <button id="stopMining" disabled>Stop Mining</button>
-            <div id="publicKeyDisplay" style="margin-top: 10px; word-break: break-all;"></div>
         </div>
+        <button id="syncHashBtn" style="margin-left: 10px;">Sync Hash</button>
     `;
 
     // Modal elements
@@ -158,78 +158,175 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('stopMining').disabled = true;
     };
 
-    document.getElementById('setKeyBtn').onclick = () => {
-        const passphrase = document.getElementById('passphraseInput').value;
-        if (!passphrase) {
-            alert('Please enter a passphrase');
-            return;
-        }
-        
+    document.getElementById('setKeyBtn').onclick = function() {
         try {
-            keyPair = deriveKeyFromPassphrase(passphrase);
-            watchOnlyKey = null;
+            // Get the passphrase
+            const passphrase = document.getElementById('passphraseInput').value.trim();
+            if (!passphrase) {
+                alert('Please enter a passphrase');
+                return;
+            }
+            
+            // Clear the input field
             document.getElementById('passphraseInput').value = '';
             
-            console.log('Key set from passphrase, public key:', keyPair.getPublic('hex'));
+            // Generate the key pair
+            const hash = CryptoJS.SHA256(passphrase).toString();
+            keyPair = ec.keyFromPrivate(hash.substring(0, 64), 'hex');
+            watchOnlyKey = null;
             
-            // First update UI and request balance
-            updateUIState();
-            requestBalance();
+            // Log success
+            const publicKeyHex = keyPair.getPublic('hex');
+            console.log('Key set successfully. Public key:', publicKeyHex);
+            updateDebugInfo(`Key set successfully. Public key: ${publicKeyHex.substring(0, 8)}...`);
             
-            // Then synchronize the last message hash with the server
-            setTimeout(() => {
-                synchronizeLastMessageHash();
+            // Update UI
+            document.getElementById('publicKeyDisplay').textContent = `Public Key: ${publicKeyHex}`;
+            document.getElementById('forgetKeyBtn').style.display = 'inline-block';
+            document.getElementById('passphraseInput').style.display = 'none';
+            document.getElementById('setKeyBtn').style.display = 'none';
+            document.getElementById('watchOnlyInput').style.display = 'none';
+            document.getElementById('setWatchOnlyBtn').style.display = 'none';
+            
+            // Enable buttons
+            document.getElementById('messageInput').disabled = false;
+            document.getElementById('sendBtn').disabled = false;
+            document.getElementById('transferBtn').disabled = false;
+            document.getElementById('createRoomBtn').disabled = false;
+            document.getElementById('sendRoomTokenBtn').disabled = false;
+            document.getElementById('startMining').disabled = false;
+            document.getElementById('syncHashBtn').disabled = false;
+            
+            // Request balance
+            ws.send(JSON.stringify({
+                type: 'getBalance',
+                publicKey: publicKeyHex
+            }));
+            
+            // Request room list
+            ws.send(JSON.stringify({
+                type: 'getRoomList',
+                publicKey: publicKeyHex
+            }));
+            
+            // Synchronize hash
+            setTimeout(function() {
+                ws.send(JSON.stringify({
+                    type: 'getLastMessageHash',
+                    publicKey: publicKeyHex
+                }));
             }, 500);
+            
         } catch (error) {
             console.error('Error setting key:', error);
             alert('Error setting key: ' + error.message);
         }
     };
 
-    document.getElementById('setWatchOnlyBtn').onclick = () => {
-        const publicKey = document.getElementById('watchOnlyInput').value.trim();
-        if (!publicKey) {
-            alert('Please enter a public key');
-            return;
-        }
-        
+    document.getElementById('setWatchOnlyBtn').onclick = function() {
         try {
-            // Validate the public key
-            ec.keyFromPublic(publicKey, 'hex');
+            // Get the public key
+            const publicKeyHex = document.getElementById('watchOnlyInput').value.trim();
+            if (!publicKeyHex) {
+                alert('Please enter a public key');
+                return;
+            }
             
-            keyPair = null;
-            watchOnlyKey = publicKey;
+            // Clear the input field
             document.getElementById('watchOnlyInput').value = '';
             
-            console.log('Watch-only mode enabled with public key:', publicKey);
+            // Validate the public key
+            ec.keyFromPublic(publicKeyHex, 'hex');
             
-            // First update UI and request balance
-            updateUIState();
-            requestBalance();
+            // Set the watch-only key
+            keyPair = null;
+            watchOnlyKey = publicKeyHex;
             
-            // Then synchronize the last message hash with the server
-            setTimeout(() => {
-                synchronizeLastMessageHash();
+            // Log success
+            console.log('Watch-only mode enabled. Public key:', publicKeyHex);
+            updateDebugInfo(`Watch-only mode enabled. Public key: ${publicKeyHex.substring(0, 8)}...`);
+            
+            // Update UI
+            document.getElementById('publicKeyDisplay').textContent = `Public Key (Watch-only): ${publicKeyHex}`;
+            document.getElementById('forgetKeyBtn').style.display = 'inline-block';
+            document.getElementById('passphraseInput').style.display = 'none';
+            document.getElementById('setKeyBtn').style.display = 'none';
+            document.getElementById('watchOnlyInput').style.display = 'none';
+            document.getElementById('setWatchOnlyBtn').style.display = 'none';
+            
+            // Enable buttons
+            document.getElementById('messageInput').disabled = false;
+            document.getElementById('sendBtn').disabled = false;
+            document.getElementById('transferBtn').disabled = false;
+            document.getElementById('createRoomBtn').disabled = false;
+            document.getElementById('sendRoomTokenBtn').disabled = false;
+            document.getElementById('startMining').disabled = false;
+            document.getElementById('syncHashBtn').disabled = false;
+            
+            // Request balance
+            ws.send(JSON.stringify({
+                type: 'getBalance',
+                publicKey: publicKeyHex
+            }));
+            
+            // Request room list
+            ws.send(JSON.stringify({
+                type: 'getRoomList',
+                publicKey: publicKeyHex
+            }));
+            
+            // Synchronize hash
+            setTimeout(function() {
+                ws.send(JSON.stringify({
+                    type: 'getLastMessageHash',
+                    publicKey: publicKeyHex
+                }));
             }, 500);
+            
         } catch (error) {
             console.error('Error setting watch-only key:', error);
             alert('Invalid public key format: ' + error.message);
         }
     };
 
-    document.getElementById('forgetKeyBtn').onclick = () => {
-        keyPair = null;
-        watchOnlyKey = null;
-        updateUIState();
-        resetBalance();
-
-        // Request room list to refresh room token balances
-        ws.send(JSON.stringify({
-            type: 'getRoomList',
-            publicKey: null
-        }));
-
-        console.log('Key forgotten');
+    document.getElementById('forgetKeyBtn').onclick = function() {
+        try {
+            // Clear the keys
+            keyPair = null;
+            watchOnlyKey = null;
+            
+            // Log success
+            console.log('Key forgotten');
+            updateDebugInfo('Key forgotten');
+            
+            // Update UI
+            document.getElementById('publicKeyDisplay').textContent = '';
+            document.getElementById('balance').textContent = 'Balance: 0 Hash';
+            document.getElementById('forgetKeyBtn').style.display = 'none';
+            document.getElementById('passphraseInput').style.display = 'inline-block';
+            document.getElementById('setKeyBtn').style.display = 'inline-block';
+            document.getElementById('watchOnlyInput').style.display = 'inline-block';
+            document.getElementById('setWatchOnlyBtn').style.display = 'inline-block';
+            
+            // Disable buttons
+            document.getElementById('messageInput').disabled = true;
+            document.getElementById('sendBtn').disabled = true;
+            document.getElementById('transferBtn').disabled = true;
+            document.getElementById('createRoomBtn').disabled = true;
+            document.getElementById('sendRoomTokenBtn').disabled = true;
+            document.getElementById('startMining').disabled = true;
+            document.getElementById('syncHashBtn').disabled = true;
+            
+            // Request room list with no key
+            ws.send(JSON.stringify({
+                type: 'getRoomList',
+                publicKey: null
+            }));
+            
+        } catch (error) {
+            console.error('Error forgetting key:', error);
+            updateDebugInfo(`Error forgetting key: ${error.message}`);
+        }
     };
 
     document.getElementById('sendBtn').onclick = () => {
