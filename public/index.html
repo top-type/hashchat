@@ -35,11 +35,18 @@
             <input type="text" id="watchOnlyInput" placeholder="Enter public key for watch-only mode">
             <button id="setWatchOnlyBtn">Watch Only</button>
             <button id="forgetKeyBtn" style="display: none;">Forget Key</button>
+            <div id="balance" style="margin-top: 10px; font-weight: bold;">Balance: 0 Hash</div>
+            <div id="publicKeyDisplay" style="margin-top: 5px; word-break: break-all; font-size: 0.8em;"></div>
         </div>
         <div id="transferControls" style="margin-top: 10px;">
             <input type="text" id="recipientPublicKey" placeholder="Recipient Public Key">
             <input type="number" id="transferAmount" placeholder="Amount">
             <button id="transferBtn" disabled>Transfer Hash</button>
+        </div>
+
+        <div id="miningControls" style="margin-top: 10px;">
+            <button id="startMining" disabled>Start Mining</button>
+            <button id="stopMining" disabled>Stop Mining</button>
         </div>
 
         <div id="currentRoom">Current Room: General</div>

@@ -6,6 +6,7 @@ let watchOnlyKey = null;
 let ws = new WebSocket('ws://' + window.location.host);
 let mining = false;
 let currentPuzzle = null;
+let currentDifficulty = 4; // Default difficulty level
 let worker = null;
 let pendingAction = null;
 let currentRoomId = 'general';
@@ -129,7 +130,7 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('startMining').disabled = true;
         document.getElementById('stopMining').disabled = false;
         const publicKey = keyPair ? keyPair.getPublic('hex') : watchOnlyKey;
-        mine(currentPuzzle, publicKey, 4);
+        mine(currentPuzzle, publicKey, currentDifficulty);
     };
 
     document.getElementById('stopMining').onclick = () => {
@@ -439,19 +440,30 @@ function resetBalance() {
 function mine(puzzle, publicKey, difficulty) {
     if (!mining || !puzzle) return;
     
+    // Add debug logging
+    console.log(`Mining started: puzzle=${puzzle.substring(0, 10)}..., difficulty=${difficulty}`);
+    document.getElementById('debugInfo').innerHTML += `Mining started: puzzle=${puzzle.substring(0, 10)}..., difficulty=${difficulty}\n`;
+    
     // Try to find a valid nonce
     let nonce = Math.floor(Math.random() * 1000000000);
     const maxAttempts = 1000; // Limit attempts per batch to keep UI responsive
     
     for (let i = 0; i < maxAttempts && mining; i++) {
         // Check if this nonce works
-        const hash = CryptoJS.SHA256(puzzle + publicKey + nonce).toString();
+        const data = puzzle + publicKey + nonce;
+        // Double hash to match server verification
+        const firstHash = CryptoJS.SHA256(data).toString();
+        const hash = CryptoJS.SHA256(firstHash).toString();
+        
         const isValid = hash.substring(0, difficulty) === '0'.repeat(difficulty);
         
         if (isValid) {
             // Found a valid nonce, submit it
+            console.log(`Found valid nonce: ${nonce}, hash: ${hash}`);
+            document.getElementById('debugInfo').innerHTML += `Found valid nonce: ${nonce}, hash: ${hash}\n`;
+            
             ws.send(JSON.stringify({
-                type: 'solution',  // Changed from 'submitProofOfWork' to match server expectation
+                type: 'solution',
                 puzzle,
                 publicKey,
                 nonce,
@@ -468,6 +480,9 @@ function mine(puzzle, publicKey, difficulty) {
     // Schedule the next batch if still mining
     if (mining) {
         setTimeout(() => mine(puzzle, publicKey, difficulty), 0);
+    } else {
+        console.log('Mining stopped');
+        document.getElementById('debugInfo').innerHTML += 'Mining stopped\n';
     }
 }
 
@@ -480,13 +495,22 @@ ws.onmessage = (event) => {
         if (data.type === 'puzzle') {
             // Received a new mining puzzle
             currentPuzzle = data.puzzle;
+            // Update difficulty if provided by server
+            if (data.difficulty) {
+                currentDifficulty = data.difficulty;
+            }
+            console.log(`Received new puzzle: ${currentPuzzle.substring(0, 10)}..., difficulty: ${currentDifficulty}`);
+            document.getElementById('debugInfo').innerHTML += `Received new puzzle: ${currentPuzzle.substring(0, 10)}..., difficulty: ${currentDifficulty}\n`;
+            
             if (mining) {
                 const publicKey = keyPair ? keyPair.getPublic('hex') : watchOnlyKey;
-                mine(currentPuzzle, publicKey, data.difficulty);
+                mine(currentPuzzle, publicKey, currentDifficulty);
             }
         } else if (data.type === 'balance') {
             // Update balance display
             document.getElementById('balance').textContent = `Balance: ${data.balance} Hash`;
+            console.log(`Balance updated: ${data.balance} Hash`);
+            document.getElementById('debugInfo').innerHTML += `Balance updated: ${data.balance} Hash\n`;
         } else if (data.type === 'roomList') {
             // Update room list
             updateRoomList(data.rooms);
