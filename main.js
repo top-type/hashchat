@@ -45,7 +45,20 @@ function calculateMessageHash(message, publicKey, timestamp, prevHash) {
 // Verify signatures on the server
 function verifySignature(message, signature, publicKey) {
     try {
+        // Check if signature is undefined or not a valid string
+        if (!signature || typeof signature !== 'string') {
+            console.error('Invalid signature format: signature is undefined or not a string');
+            return false;
+        }
+
+        // Validate that the signature is a proper hex string
+        if (!/^[0-9a-fA-F]+$/.test(signature)) {
+            console.error('Invalid signature format: not a valid hex string');
+            return false;
+        }
+
         const key = ec.keyFromPublic(publicKey, 'hex');
+        
         // The signature is already in DER hex format from the client
         return key.verify(message, signature);
     } catch (error) {

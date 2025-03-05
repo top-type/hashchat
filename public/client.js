@@ -59,9 +59,15 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     confirmBtn.onclick = () => {
-        const signature = document.getElementById('signatureInput').value;
+        const signature = document.getElementById('signatureInput').value.trim();
         if (!signature) {
             alert('Please enter a signature');
+            return;
+        }
+
+        // Validate that the signature is a proper hex string
+        if (!/^[0-9a-fA-F]+$/.test(signature)) {
+            alert('Invalid signature format. Please enter a valid DER hex format signature.');
             return;
         }
 
@@ -82,6 +88,40 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('signatureInput').value = '';
         pendingAction = null;
     };
+
+    // Add a helper function to show signature format example
+    function showSignatureExample() {
+        // Create a temporary key pair just for the example
+        const tempKeyPair = ec.genKeyPair();
+        const exampleMessage = "example";
+        const exampleSignature = tempKeyPair.sign(exampleMessage).toDER('hex');
+        
+        return `Example DER hex format signature: ${exampleSignature}`;
+    }
+
+    // Update the modal display to show an example signature
+    const originalShowModal = document.getElementById('signatureModal').style.display;
+    Object.defineProperty(document.getElementById('signatureModal').style, 'display', {
+        set: function(value) {
+            if (value === 'block') {
+                // Add example signature help text when modal is shown
+                const helpText = document.createElement('p');
+                helpText.className = 'signature-help';
+                helpText.textContent = showSignatureExample();
+                
+                // Remove any existing help text
+                const existingHelp = document.querySelector('.signature-help');
+                if (existingHelp) existingHelp.remove();
+                
+                // Add the new help text
+                document.querySelector('.modal-content').appendChild(helpText);
+            }
+            this.cssText = `display: ${value}`;
+        },
+        get: function() {
+            return this.cssText.replace('display: ', '');
+        }
+    });
 
     document.getElementById('startMining').onclick = () => {
         if (!keyPair && !watchOnlyKey) return;
@@ -282,12 +322,15 @@ function sendSignedMessage(message, signature, timestamp, prevHashOverride) {
     const publicKey = keyPair ? keyPair.getPublic('hex') : watchOnlyKey;
     const prevHash = prevHashOverride || lastMessageHash;
 
-    console.log('Sending message:', {
+    // Add debug information
+    console.log('Sending message with signature:', {
         message,
         timestamp,
-        signature,
-        publicKey,
-        prevHash
+        signature: signature ? `${signature.substring(0, 10)}...` : 'undefined', // Show first 10 chars
+        signatureType: typeof signature,
+        signatureLength: signature ? signature.length : 0,
+        publicKey: publicKey ? `${publicKey.substring(0, 10)}...` : 'undefined',
+        prevHash: prevHash ? `${prevHash.substring(0, 10)}...` : 'undefined'
     });
 
     ws.send(JSON.stringify({
