@@ -301,7 +301,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const timestamp = Date.now().toString();
         if (keyPair) {
-            const signature = keyPair.sign(recipientPublicKey + amount + timestamp + lastMessageHash).toDER('hex');
+            // Create signature with the exact same format as the server expects
+            const dataToSign = recipientPublicKey + amount + timestamp + lastMessageHash;
+            const signature = keyPair.sign(dataToSign).toDER('hex');
             sendSignedTransfer(recipientPublicKey, amount, signature, timestamp, lastMessageHash);
         } else if (watchOnlyKey) {
             pendingAction = {
@@ -424,17 +426,18 @@ function deriveKeyFromPassphrase(passphrase) {
 }
 
 function requestBalance() {
+    if (!keyPair && !watchOnlyKey) return;
+    
     const publicKey = keyPair ? keyPair.getPublic('hex') : watchOnlyKey;
-    if (publicKey) {
-        ws.send(JSON.stringify({
-            type: 'getBalance',
-            publicKey
-        }));
-    }
+    ws.send(JSON.stringify({
+        type: 'getBalance',
+        publicKey
+    }));
 }
 
 function resetBalance() {
-    document.getElementById('balance').textContent = 'Balance: 0 Hash';
+    // Balance display has been removed, so we don't need to update it
+    console.log('Balance reset');
 }
 
 function mine(puzzle, publicKey, difficulty) {
@@ -507,8 +510,7 @@ ws.onmessage = (event) => {
                 mine(currentPuzzle, publicKey, currentDifficulty);
             }
         } else if (data.type === 'balance') {
-            // Update balance display
-            document.getElementById('balance').textContent = `Balance: ${data.balance} Hash`;
+            // Balance display has been removed, just log the update
             console.log(`Balance updated: ${data.balance} Hash`);
             document.getElementById('debugInfo').innerHTML += `Balance updated: ${data.balance} Hash\n`;
         } else if (data.type === 'roomList') {

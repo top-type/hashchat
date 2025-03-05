@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Secure Chat</title>
+    <title>HashChat</title>
     <style>
         body { max-width: 800px; margin: 20px auto; padding: 0 20px; font-family: sans-serif; }
         #messages { height: 400px; overflow-y: auto; border: 1px solid #ccc; margin: 10px 0; padding: 10px; }
@@ -28,14 +28,13 @@
 </head>
 <body>
     <div id="app">
-        <h1>Secure Chat</h1>
+        <h1>HashChat</h1>
         <div id="keyControls">
             <input type="password" id="passphraseInput" placeholder="Enter your passphrase">
             <button id="setKeyBtn">Set Key</button>
             <input type="text" id="watchOnlyInput" placeholder="Enter public key for watch-only mode">
             <button id="setWatchOnlyBtn">Watch Only</button>
             <button id="forgetKeyBtn" style="display: none;">Forget Key</button>
-            <div id="balance" style="margin-top: 10px; font-weight: bold;">Balance: 0 Hash</div>
             <div id="publicKeyDisplay" style="margin-top: 5px; word-break: break-all; font-size: 0.8em;"></div>
         </div>
         <div id="transferControls" style="margin-top: 10px;">
