@@ -277,14 +277,25 @@ wss.on('connection', (ws) => {
 
             // Handle room list request
             if (parsed.type === 'getRoomList') {
+                const requestingPublicKey = parsed.publicKey;
+                
                 // Send room list to the client
                 ws.send(JSON.stringify({
                     type: 'roomList',
-                    rooms: Array.from(rooms.keys()).map(id => ({
-                        id: id,
-                        name: rooms.get(id).name,
-                        creator: rooms.get(id).creator
-                    }))
+                    rooms: Array.from(rooms.keys()).map(id => {
+                        // Get token balance for this user in this room if available
+                        let tokenBalance = 0;
+                        if (roomTokens.has(id) && requestingPublicKey) {
+                            tokenBalance = roomTokens.get(id).get(requestingPublicKey) || 0;
+                        }
+                        
+                        return {
+                            id: id,
+                            name: rooms.get(id).name,
+                            creator: rooms.get(id).creator,
+                            tokenBalance: tokenBalance
+                        };
+                    })
                 }));
 
                 return;

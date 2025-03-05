@@ -17,7 +17,8 @@ ws.onopen = () => {
     console.log('WebSocket connection established');
     // Request room list when connection is established
     ws.send(JSON.stringify({
-        type: 'getRoomList'
+        type: 'getRoomList',
+        publicKey: watchOnlyKey || (keyPair ? keyPair.getPublic('hex') : null)
     }));
 };
 
@@ -152,7 +153,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Request room list to refresh room token balances
         ws.send(JSON.stringify({
-            type: 'getRoomList'
+            type: 'getRoomList',
+            publicKey: keyPair ? keyPair.getPublic('hex') : null
         }));
 
         console.log('Key set from passphrase');
@@ -171,7 +173,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Request room list to refresh room token balances
             ws.send(JSON.stringify({
-                type: 'getRoomList'
+                type: 'getRoomList',
+                publicKey: watchOnlyKey
             }));
 
             console.log('Watch-only mode enabled');
@@ -188,7 +191,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Request room list to refresh room token balances
         ws.send(JSON.stringify({
-            type: 'getRoomList'
+            type: 'getRoomList',
+            publicKey: null
         }));
 
         console.log('Key forgotten');
@@ -412,6 +416,11 @@ function updateUIState() {
     if (hasKey) {
         const publicKey = keyPair ? keyPair.getPublic('hex') : watchOnlyKey;
         document.getElementById('publicKeyDisplay').textContent = `Public Key: ${publicKey}`;
+        
+        // Request token balance for current room
+        if (currentRoomId) {
+            requestRoomTokenBalance(currentRoomId);
+        }
     } else {
         document.getElementById('publicKeyDisplay').textContent = '';
     }
@@ -538,7 +547,28 @@ ws.onmessage = (event) => {
         } else if (data.type === 'roomTokenBalance') {
             // Handle room token balance update
             console.log(`Room token balance updated: ${data.balance} for room ${data.roomId}`);
-            // You might want to update the UI to show this information
+            
+            // Update the UI to show room token balance
+            const roomButtons = document.querySelectorAll('.room-item');
+            roomButtons.forEach(button => {
+                const roomId = button.getAttribute('data-room-id');
+                if (roomId === data.roomId) {
+                    // Find or create the balance span
+                    let balanceSpan = button.querySelector('.room-token-balance');
+                    if (!balanceSpan) {
+                        balanceSpan = document.createElement('span');
+                        balanceSpan.className = 'room-token-balance';
+                        button.appendChild(balanceSpan);
+                    }
+                    balanceSpan.textContent = ` Token Balance: ${data.balance}`;
+                }
+            });
+            
+            // If this is the current room, update the room token display in the header
+            if (data.roomId === currentRoomId) {
+                const currentRoomElement = document.getElementById('currentRoom');
+                currentRoomElement.textContent = `Current Room: ${getRoomNameById(data.roomId)} (Token Balance: ${data.balance})`;
+            }
         } else if (data.messageHash) {
             // This is a regular chat message (no type field but has messageHash)
             const div = document.createElement('div');
@@ -561,6 +591,8 @@ function updateRoomList(rooms) {
     rooms.forEach(room => {
         const button = document.createElement('button');
         button.className = 'room-item';
+        button.setAttribute('data-room-id', room.id);
+        
         if (room.id === currentRoomId) {
             button.classList.add('active-room');
         }
@@ -592,11 +624,52 @@ function updateRoomList(rooms) {
         
         roomList.appendChild(button);
     });
+    
+    // Update current room display with token balance if available
+    if (currentRoomId) {
+        const currentRoom = rooms.find(room => room.id === currentRoomId);
+        if (currentRoom) {
+            const currentRoomElement = document.getElementById('currentRoom');
+            let displayText = `Current Room: ${currentRoom.name}`;
+            if (currentRoom.tokenBalance !== undefined) {
+                displayText += ` (Token Balance: ${currentRoom.tokenBalance})`;
+            }
+            currentRoomElement.textContent = displayText;
+        }
+    }
 }
 
 function joinRoom(roomId) {
+    currentRoomId = roomId;
     ws.send(JSON.stringify({
         type: 'joinRoom',
         roomId
     }));
+    
+    // Request token balance for this room
+    requestRoomTokenBalance(roomId);
+}
+
+function requestRoomTokenBalance(roomId) {
+    const publicKey = keyPair ? keyPair.getPublic('hex') : watchOnlyKey;
+    if (publicKey) {
+        ws.send(JSON.stringify({
+            type: 'getRoomTokenBalance',
+            roomId,
+            publicKey
+        }));
+    }
+}
+
+function getRoomNameById(roomId) {
+    const roomButtons = document.querySelectorAll('.room-item');
+    for (const button of roomButtons) {
+        if (button.getAttribute('data-room-id') === roomId) {
+            const nameSpan = button.querySelector('span:not(.room-creator):not(.room-token-balance)');
+            if (nameSpan) {
+                return nameSpan.textContent;
+            }
+        }
+    }
+    return roomId === 'general' ? 'General' : roomId;
 } 
