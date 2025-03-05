@@ -13,10 +13,20 @@ let lastMessageHash = '000000000000000000000000000000000000000000000000000000000
 
 // Add WebSocket onopen handler to request room list when connection is established
 ws.onopen = () => {
+    console.log('WebSocket connection established');
     // Request room list when connection is established
     ws.send(JSON.stringify({
         type: 'getRoomList'
     }));
+};
+
+// Add WebSocket error and close handlers for better debugging
+ws.onerror = (error) => {
+    console.error('WebSocket error:', error);
+};
+
+ws.onclose = (event) => {
+    console.log('WebSocket connection closed:', event.code, event.reason);
 };
 
 // Wrap DOM interactions in DOMContentLoaded
@@ -272,6 +282,14 @@ function sendSignedMessage(message, signature, timestamp, prevHashOverride) {
     const publicKey = keyPair ? keyPair.getPublic('hex') : watchOnlyKey;
     const prevHash = prevHashOverride || lastMessageHash;
 
+    console.log('Sending message:', {
+        message,
+        timestamp,
+        signature,
+        publicKey,
+        prevHash
+    });
+
     ws.send(JSON.stringify({
         message,
         timestamp,
@@ -390,7 +408,7 @@ function mine(puzzle, publicKey, difficulty) {
         if (isValid) {
             // Found a valid nonce, submit it
             ws.send(JSON.stringify({
-                type: 'submitProofOfWork',
+                type: 'solution',  // Changed from 'submitProofOfWork' to match server expectation
                 puzzle,
                 publicKey,
                 nonce,
@@ -413,6 +431,7 @@ function mine(puzzle, publicKey, difficulty) {
 // WebSocket message handler
 ws.onmessage = (event) => {
     try {
+        console.log('Received message:', event.data);
         const data = JSON.parse(event.data);
         
         if (data.type === 'puzzle') {
@@ -428,34 +447,17 @@ ws.onmessage = (event) => {
         } else if (data.type === 'roomList') {
             // Update room list
             updateRoomList(data.rooms);
-        } else if (data.type === 'joinRoom') {
-            // Update current room display
-            currentRoomId = data.roomId;
-            document.getElementById('currentRoom').textContent = `Current Room: ${data.roomName}`;
-            document.getElementById('messages').innerHTML = '';
             
-            // Update last message hash
-            if (data.lastMessageHash) {
-                lastMessageHash = data.lastMessageHash;
+            // Update last message hash if provided
+            if (data.messageHash) {
+                lastMessageHash = data.messageHash;
             }
-        } else if (data.type === 'message') {
-            // Display message
-            const msgData = data;
-            const div = document.createElement('div');
-            div.textContent = `${msgData.message} (from ${msgData.publicKey.slice(0,8)}...)`;
-            document.getElementById('messages').appendChild(div);
-            document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight;
-            
-            // Update last message hash
-            if (msgData.messageHash) {
-                lastMessageHash = msgData.messageHash;
-            }
-        } else if (data.type === 'chatHistory') {
+        } else if (data.type === 'roomHistory') {
             // Display chat history
             document.getElementById('messages').innerHTML = '';
             data.messages.forEach(msg => {
                 const div = document.createElement('div');
-                div.textContent = `${data.message} (from ${data.publicKey.slice(0,8)}...)`;
+                div.textContent = `${msg.message} (from ${msg.publicKey.slice(0,8)}...)`;
                 document.getElementById('messages').appendChild(div);
             });
             document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight;
@@ -464,6 +466,19 @@ ws.onmessage = (event) => {
             if (data.messages.length > 0 && data.messages[data.messages.length - 1].messageHash) {
                 lastMessageHash = data.messages[data.messages.length - 1].messageHash;
             }
+        } else if (data.type === 'roomTokenBalance') {
+            // Handle room token balance update
+            console.log(`Room token balance updated: ${data.balance} for room ${data.roomId}`);
+            // You might want to update the UI to show this information
+        } else if (data.messageHash) {
+            // This is a regular chat message (no type field but has messageHash)
+            const div = document.createElement('div');
+            div.textContent = `${data.message} (from ${data.publicKey.slice(0,8)}...)`;
+            document.getElementById('messages').appendChild(div);
+            document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight;
+            
+            // Update last message hash
+            lastMessageHash = data.messageHash;
         }
     } catch (error) {
         console.error('Error handling WebSocket message:', error);
