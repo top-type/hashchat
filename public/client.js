@@ -385,6 +385,8 @@ function sendSignedCreateRoom(roomName, signature, timestamp, prevHashOverride) 
 function sendSignedRoomTokenTransfer(roomId, recipientPublicKey, amount, signature, timestamp, prevHashOverride) {
     const publicKey = keyPair ? keyPair.getPublic('hex') : watchOnlyKey;
     const prevHash = prevHashOverride || lastMessageHash;
+    
+    console.log('Sending room token transfer with prevHash:', prevHash);
 
     ws.send(JSON.stringify({
         type: 'roomTokenTransfer',
@@ -568,6 +570,12 @@ ws.onmessage = (event) => {
             if (data.roomId === currentRoomId) {
                 const currentRoomElement = document.getElementById('currentRoom');
                 currentRoomElement.textContent = `Current Room: ${getRoomNameById(data.roomId)} (Token Balance: ${data.balance})`;
+            }
+            
+            // Update lastMessageHash if provided in the response
+            if (data.messageHash) {
+                console.log('Updating lastMessageHash from roomTokenBalance:', data.messageHash);
+                lastMessageHash = data.messageHash;
             }
         } else if (data.messageHash) {
             // This is a regular chat message (no type field but has messageHash)

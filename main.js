@@ -323,6 +323,8 @@ wss.on('connection', (ws) => {
                 // Verify the previous hash matches what we have stored
                 if (prevHash !== lastHash) {
                     console.log('Invalid room token transfer chain: previous hash mismatch');
+                    console.log('Expected:', lastHash);
+                    console.log('Received:', prevHash);
                     return;
                 }
 
@@ -368,7 +370,8 @@ wss.on('connection', (ws) => {
                             type: 'roomTokenBalance',
                             roomId: roomId,
                             balance: roomTokenBalances.get(recipientPublicKey),
-                            publicKey: recipientPublicKey
+                            publicKey: recipientPublicKey,
+                            // Don't include messageHash for recipient as it would overwrite their own chain
                         }));
                     }
                 });
@@ -387,12 +390,16 @@ wss.on('connection', (ws) => {
 
                 const roomTokenBalances = roomTokens.get(roomId);
                 const balance = roomTokenBalances.get(publicKey) || 0;
+                
+                // Get the last message hash for this user
+                const lastHash = userLastMessageHash.get(publicKey) || '0000000000000000000000000000000000000000000000000000000000000000';
 
                 ws.send(JSON.stringify({
                     type: 'roomTokenBalance',
                     roomId: roomId,
                     balance: balance,
-                    publicKey: publicKey
+                    publicKey: publicKey,
+                    messageHash: lastHash
                 }));
 
                 return;
