@@ -16,15 +16,22 @@ let lastMessageHash = '000000000000000000000000000000000000000000000000000000000
 ws.onopen = () => {
     console.log('WebSocket connection established');
     
-    // Request room list when connection is established
-    ws.send(JSON.stringify({
-        type: 'getRoomList',
-        publicKey: watchOnlyKey || (keyPair ? keyPair.getPublic('hex') : null)
-    }));
-    
-    // Synchronize hash if we have a key
-    if (keyPair || watchOnlyKey) {
-        synchronizeLastMessageHash();
+    try {
+        // Request room list when connection is established
+        ws.send(JSON.stringify({
+            type: 'getRoomList',
+            publicKey: watchOnlyKey || (keyPair ? keyPair.getPublic('hex') : null)
+        }));
+        
+        // Synchronize hash if we have a key
+        if (keyPair || watchOnlyKey) {
+            // Wait a bit to ensure the connection is fully established
+            setTimeout(() => {
+                synchronizeLastMessageHash();
+            }, 500);
+        }
+    } catch (error) {
+        console.error('Error in WebSocket onopen handler:', error);
     }
 };
 
@@ -158,15 +165,25 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
         
-        keyPair = deriveKeyFromPassphrase(passphrase);
-        watchOnlyKey = null;
-        document.getElementById('passphraseInput').value = '';
-        
-        updateUIState();
-        requestBalance();
-        
-        // Synchronize the last message hash with the server
-        synchronizeLastMessageHash();
+        try {
+            keyPair = deriveKeyFromPassphrase(passphrase);
+            watchOnlyKey = null;
+            document.getElementById('passphraseInput').value = '';
+            
+            console.log('Key set from passphrase, public key:', keyPair.getPublic('hex'));
+            
+            // First update UI and request balance
+            updateUIState();
+            requestBalance();
+            
+            // Then synchronize the last message hash with the server
+            setTimeout(() => {
+                synchronizeLastMessageHash();
+            }, 500);
+        } catch (error) {
+            console.error('Error setting key:', error);
+            alert('Error setting key: ' + error.message);
+        }
     };
 
     document.getElementById('setWatchOnlyBtn').onclick = () => {
@@ -184,13 +201,19 @@ document.addEventListener('DOMContentLoaded', () => {
             watchOnlyKey = publicKey;
             document.getElementById('watchOnlyInput').value = '';
             
+            console.log('Watch-only mode enabled with public key:', publicKey);
+            
+            // First update UI and request balance
             updateUIState();
             requestBalance();
             
-            // Synchronize the last message hash with the server
-            synchronizeLastMessageHash();
+            // Then synchronize the last message hash with the server
+            setTimeout(() => {
+                synchronizeLastMessageHash();
+            }, 500);
         } catch (error) {
-            alert('Invalid public key format');
+            console.error('Error setting watch-only key:', error);
+            alert('Invalid public key format: ' + error.message);
         }
     };
 
@@ -520,34 +543,39 @@ function updateUIState() {
     const hasKey = keyPair !== null || watchOnlyKey !== null;
     const canSign = keyPair !== null;
     
-    document.getElementById('messageInput').disabled = !hasKey;
-    document.getElementById('sendBtn').disabled = !hasKey;
-    document.getElementById('transferBtn').disabled = !hasKey;
-    document.getElementById('createRoomBtn').disabled = !hasKey;
-    document.getElementById('sendRoomTokenBtn').disabled = !hasKey;
-    document.getElementById('startMining').disabled = !hasKey;
-    document.getElementById('syncHashBtn').disabled = !hasKey;
-    
-    // Show/hide key controls based on whether a key is set
-    document.getElementById('forgetKeyBtn').style.display = hasKey ? 'inline-block' : 'none';
-    document.getElementById('passphraseInput').style.display = hasKey ? 'none' : 'inline-block';
-    document.getElementById('setKeyBtn').style.display = hasKey ? 'none' : 'inline-block';
-    document.getElementById('watchOnlyInput').style.display = hasKey ? 'none' : 'inline-block';
-    document.getElementById('setWatchOnlyBtn').style.display = hasKey ? 'none' : 'inline-block';
-    
-    if (hasKey) {
-        const publicKey = keyPair ? keyPair.getPublic('hex') : watchOnlyKey;
-        document.getElementById('publicKeyDisplay').textContent = `Public Key: ${publicKey}`;
+    try {
+        document.getElementById('messageInput').disabled = !hasKey;
+        document.getElementById('sendBtn').disabled = !hasKey;
+        document.getElementById('transferBtn').disabled = !hasKey;
+        document.getElementById('createRoomBtn').disabled = !hasKey;
+        document.getElementById('sendRoomTokenBtn').disabled = !hasKey;
+        document.getElementById('startMining').disabled = !hasKey;
+        document.getElementById('syncHashBtn').disabled = !hasKey;
         
-        // Add current hash to debug info
-        document.getElementById('debugInfo').innerHTML += `Current lastMessageHash: ${lastMessageHash}\n`;
+        // Show/hide key controls based on whether a key is set
+        document.getElementById('forgetKeyBtn').style.display = hasKey ? 'inline-block' : 'none';
+        document.getElementById('passphraseInput').style.display = hasKey ? 'none' : 'inline-block';
+        document.getElementById('setKeyBtn').style.display = hasKey ? 'none' : 'inline-block';
+        document.getElementById('watchOnlyInput').style.display = hasKey ? 'none' : 'inline-block';
+        document.getElementById('setWatchOnlyBtn').style.display = hasKey ? 'none' : 'inline-block';
         
-        // Request token balance for current room
-        if (currentRoomId) {
-            requestRoomTokenBalance(currentRoomId);
+        if (hasKey) {
+            const publicKey = keyPair ? keyPair.getPublic('hex') : watchOnlyKey;
+            document.getElementById('publicKeyDisplay').textContent = `Public Key: ${publicKey}`;
+            
+            // Add current hash to debug info
+            updateDebugInfo(`Current key: ${publicKey.substring(0, 8)}..., lastMessageHash: ${lastMessageHash.substring(0, 16)}...`);
+            
+            // Request token balance for current room
+            if (currentRoomId) {
+                requestRoomTokenBalance(currentRoomId);
+            }
+        } else {
+            document.getElementById('publicKeyDisplay').textContent = '';
         }
-    } else {
-        document.getElementById('publicKeyDisplay').textContent = '';
+    } catch (error) {
+        console.error('Error updating UI state:', error);
+        updateDebugInfo(`Error updating UI state: ${error.message}`);
     }
 }
 
@@ -628,6 +656,9 @@ ws.onmessage = (event) => {
         console.log('Received message:', event.data);
         const data = JSON.parse(event.data);
         
+        // Add to debug info
+        updateDebugInfo(`Received: ${data.type || 'message'}`);
+        
         if (data.type === 'puzzle') {
             // Received a new mining puzzle
             currentPuzzle = data.puzzle;
@@ -636,7 +667,7 @@ ws.onmessage = (event) => {
                 currentDifficulty = data.difficulty;
             }
             console.log(`Received new puzzle: ${currentPuzzle.substring(0, 10)}..., difficulty: ${currentDifficulty}`);
-            document.getElementById('debugInfo').innerHTML += `Received new puzzle: ${currentPuzzle.substring(0, 10)}..., difficulty: ${currentDifficulty}\n`;
+            updateDebugInfo(`Received new puzzle: ${currentPuzzle.substring(0, 10)}..., difficulty: ${currentDifficulty}`);
             
             if (mining) {
                 const publicKey = keyPair ? keyPair.getPublic('hex') : watchOnlyKey;
@@ -646,14 +677,23 @@ ws.onmessage = (event) => {
             // Update balance display
             document.getElementById('balance').textContent = `Balance: ${data.balance} Hash`;
             console.log(`Balance updated: ${data.balance} Hash`);
-            document.getElementById('debugInfo').innerHTML += `Balance updated: ${data.balance} Hash\n`;
+            updateDebugInfo(`Balance updated: ${data.balance} Hash`);
+            
+            // Update last message hash if provided
+            if (data.messageHash) {
+                console.log('Updating lastMessageHash from balance:', data.messageHash);
+                lastMessageHash = data.messageHash;
+                updateDebugInfo(`Updated lastMessageHash: ${data.messageHash.substring(0, 16)}...`);
+            }
         } else if (data.type === 'roomList') {
             // Update room list
             updateRoomList(data.rooms);
             
             // Update last message hash if provided
             if (data.messageHash) {
+                console.log('Updating lastMessageHash from roomList:', data.messageHash);
                 lastMessageHash = data.messageHash;
+                updateDebugInfo(`Updated lastMessageHash from roomList: ${data.messageHash.substring(0, 16)}...`);
             }
         } else if (data.type === 'roomHistory') {
             // Display chat history
@@ -667,11 +707,15 @@ ws.onmessage = (event) => {
             
             // Update last message hash from the most recent message
             if (data.messages.length > 0 && data.messages[data.messages.length - 1].messageHash) {
-                lastMessageHash = data.messages[data.messages.length - 1].messageHash;
+                const newHash = data.messages[data.messages.length - 1].messageHash;
+                console.log('Updating lastMessageHash from roomHistory:', newHash);
+                lastMessageHash = newHash;
+                updateDebugInfo(`Updated lastMessageHash from roomHistory: ${newHash.substring(0, 16)}...`);
             }
         } else if (data.type === 'roomTokenBalance') {
             // Handle room token balance update
             console.log(`Room token balance updated: ${data.balance} for room ${data.roomId}`);
+            updateDebugInfo(`Room token balance updated: ${data.balance} for room ${data.roomId}`);
             
             // Update the UI to show room token balance
             const roomButtons = document.querySelectorAll('.room-item');
@@ -699,11 +743,12 @@ ws.onmessage = (event) => {
             if (data.messageHash) {
                 console.log('Updating lastMessageHash from roomTokenBalance:', data.messageHash);
                 lastMessageHash = data.messageHash;
+                updateDebugInfo(`Updated lastMessageHash from roomTokenBalance: ${data.messageHash.substring(0, 16)}...`);
             }
         } else if (data.type === 'lastMessageHash') {
             // Update the last message hash from server
             console.log('Received last message hash from server:', data.lastMessageHash);
-            document.getElementById('debugInfo').innerHTML += `Received last message hash: ${data.lastMessageHash}\n`;
+            updateDebugInfo(`Received last message hash: ${data.lastMessageHash.substring(0, 16)}...`);
             
             // Update the last message hash
             lastMessageHash = data.lastMessageHash;
@@ -715,10 +760,13 @@ ws.onmessage = (event) => {
             document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight;
             
             // Update last message hash
+            console.log('Updating lastMessageHash from message:', data.messageHash);
             lastMessageHash = data.messageHash;
+            updateDebugInfo(`Updated lastMessageHash from message: ${data.messageHash.substring(0, 16)}...`);
         }
     } catch (error) {
         console.error('Error handling WebSocket message:', error);
+        updateDebugInfo(`Error handling WebSocket message: ${error.message}`);
     }
 };
 
@@ -872,13 +920,33 @@ function prepareTransferData(type, recipientPublicKey, amount, roomId = null) {
 
 // Add this function after the other utility functions
 function synchronizeLastMessageHash() {
-    if (!keyPair && !watchOnlyKey) return;
+    if (!keyPair && !watchOnlyKey) {
+        console.log('Cannot synchronize hash: no key available');
+        updateDebugInfo('Cannot synchronize hash: no key available');
+        return;
+    }
     
-    const publicKey = keyPair ? keyPair.getPublic('hex') : watchOnlyKey;
-    console.log('Requesting hash synchronization for public key:', publicKey);
-    
-    ws.send(JSON.stringify({
-        type: 'getLastMessageHash',
-        publicKey: publicKey
-    }));
+    try {
+        const publicKey = keyPair ? keyPair.getPublic('hex') : watchOnlyKey;
+        console.log('Requesting hash synchronization for public key:', publicKey);
+        updateDebugInfo(`Requesting hash synchronization for: ${publicKey.substring(0, 8)}...`);
+        
+        ws.send(JSON.stringify({
+            type: 'getLastMessageHash',
+            publicKey: publicKey
+        }));
+    } catch (error) {
+        console.error('Error synchronizing hash:', error);
+        updateDebugInfo(`Error synchronizing hash: ${error.message}`);
+    }
+}
+
+// Add a function to safely update debug info
+function updateDebugInfo(message) {
+    const debugInfo = document.getElementById('debugInfo');
+    if (debugInfo) {
+        debugInfo.innerHTML += message + '\n';
+        // Scroll to bottom
+        debugInfo.scrollTop = debugInfo.scrollHeight;
+    }
 } 
