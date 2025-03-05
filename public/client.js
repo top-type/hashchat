@@ -37,7 +37,6 @@ document.addEventListener('DOMContentLoaded', () => {
         <div id="miningControls" style="margin-top: 10px;">
             <button id="startMining" disabled>Start Mining</button>
             <button id="stopMining" disabled>Stop Mining</button>
-            <span id="balance">Balance: 0 Hash</span>
             <div id="publicKeyDisplay" style="margin-top: 10px; word-break: break-all;"></div>
         </div>
     `;
