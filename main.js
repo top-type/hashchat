@@ -154,8 +154,14 @@ wss.on('connection', (ws) => {
                 // Get the last message hash for this user, or use initial hash if none exists
                 const lastHash = userLastMessageHash.get(publicKey) || '0000000000000000000000000000000000000000000000000000000000000000';
 
+                // Ensure all values are properly converted to strings for verification
+                const messageToVerify = recipientPublicKey + amount.toString() + timestamp.toString() + prevHash;
+                console.log('Verifying transfer signature with message:', messageToVerify);
+                console.log('Signature:', signature);
+                console.log('Public key:', publicKey);
+
                 // Verify the transfer request
-                if (!verifySignature(recipientPublicKey + amount + timestamp + prevHash, signature, publicKey)) {
+                if (!verifySignature(messageToVerify, signature, publicKey)) {
                     console.log('Invalid transfer signature rejected');
                     return;
                 }
@@ -163,6 +169,8 @@ wss.on('connection', (ws) => {
                 // Verify the previous hash matches what we have stored
                 if (prevHash !== lastHash) {
                     console.log('Invalid transfer chain: previous hash mismatch');
+                    console.log('Expected:', lastHash);
+                    console.log('Received:', prevHash);
                     return;
                 }
 

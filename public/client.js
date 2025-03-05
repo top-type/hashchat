@@ -77,11 +77,15 @@ document.addEventListener('DOMContentLoaded', () => {
             if (type === 'message') {
                 sendSignedMessage(data.message, signature, data.timestamp, data.prevHash);
             } else if (type === 'transfer') {
-                sendSignedTransfer(data.recipientPublicKey, data.amount, signature, data.timestamp, data.prevHash);
+                // Ensure amount is properly converted to a number for the transfer
+                const amount = parseInt(data.amount, 10);
+                sendSignedTransfer(data.recipientPublicKey, amount, signature, data.timestamp, data.prevHash);
             } else if (type === 'createRoom') {
                 sendSignedCreateRoom(data.roomName, signature, data.timestamp, data.prevHash);
             } else if (type === 'roomTokenTransfer') {
-                sendSignedRoomTokenTransfer(data.roomId, data.recipientPublicKey, data.amount, signature, data.timestamp, data.prevHash);
+                // Ensure amount is properly converted to a number for the room token transfer
+                const amount = parseInt(data.amount, 10);
+                sendSignedRoomTokenTransfer(data.roomId, data.recipientPublicKey, amount, signature, data.timestamp, data.prevHash);
             }
         }
 
@@ -261,7 +265,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (keyPair) {
             // If we have a key pair, sign the message automatically
             const messageToSign = currentRoomId + recipientPublicKey + amount + timestamp + lastMessageHash;
+            console.log('Signing message for room token transfer:', messageToSign);
             const signature = keyPair.sign(messageToSign).toDER('hex');
+            console.log('Generated signature:', signature);
             sendSignedRoomTokenTransfer(currentRoomId, recipientPublicKey, amount, signature, timestamp, lastMessageHash);
 
             // Clear input fields
@@ -305,8 +311,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const timestamp = Date.now().toString();
         if (keyPair) {
             // Create signature with the exact same format as the server expects
-            const dataToSign = recipientPublicKey + amount + timestamp + lastMessageHash;
+            // Ensure we're using string concatenation for all values to match server verification
+            const dataToSign = recipientPublicKey + amount.toString() + timestamp + lastMessageHash;
+            console.log('Signing transfer data:', dataToSign);
             const signature = keyPair.sign(dataToSign).toDER('hex');
+            console.log('Generated signature:', signature);
             sendSignedTransfer(recipientPublicKey, amount, signature, timestamp, lastMessageHash);
         } else if (watchOnlyKey) {
             pendingAction = {
@@ -318,7 +327,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     prevHash: lastMessageHash
                 }
             };
-            document.getElementById('signatureMessage').textContent = recipientPublicKey + amount + timestamp + lastMessageHash;
+            // Ensure we're using string concatenation for all values to match server verification
+            document.getElementById('signatureMessage').textContent = recipientPublicKey + amount.toString() + timestamp + lastMessageHash;
             document.getElementById('signatureModal').style.display = 'block';
         }
     };
@@ -413,7 +423,13 @@ function updateUIState() {
     document.getElementById('createRoomBtn').disabled = !hasKey;
     document.getElementById('sendRoomTokenBtn').disabled = !hasKey;
     document.getElementById('startMining').disabled = !hasKey;
+    
+    // Show/hide key controls based on whether a key is set
     document.getElementById('forgetKeyBtn').style.display = hasKey ? 'inline-block' : 'none';
+    document.getElementById('passphraseInput').style.display = hasKey ? 'none' : 'inline-block';
+    document.getElementById('setKeyBtn').style.display = hasKey ? 'none' : 'inline-block';
+    document.getElementById('watchOnlyInput').style.display = hasKey ? 'none' : 'inline-block';
+    document.getElementById('setWatchOnlyBtn').style.display = hasKey ? 'none' : 'inline-block';
     
     if (hasKey) {
         const publicKey = keyPair ? keyPair.getPublic('hex') : watchOnlyKey;
