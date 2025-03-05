@@ -80,6 +80,20 @@ function verifyProofOfWork(puzzle, publicKey, nonce, difficulty) {
     return hash.startsWith('0'.repeat(difficulty));
 }
 
+// Add this function to help with debugging
+function logHashChainState(publicKey, action, prevHash, lastHash, messageHash) {
+    console.log(`
+    ===== HASH CHAIN STATE =====
+    Action: ${action}
+    Public Key: ${publicKey.substring(0, 16)}...
+    Received prevHash: ${prevHash}
+    Expected lastHash: ${lastHash}
+    New messageHash: ${messageHash}
+    Match: ${prevHash === lastHash ? 'YES' : 'NO'}
+    ===========================
+    `);
+}
+
 wss.on('connection', (ws) => {
     console.log('Client connected');
 
@@ -189,6 +203,9 @@ wss.on('connection', (ws) => {
 
                 // Calculate the hash of this transfer for the chain
                 const transferHash = calculateMessageHash('transfer:' + recipientPublicKey + amount, publicKey, timestamp, prevHash);
+                
+                // Log hash chain state
+                logHashChainState(publicKey, 'transfer', prevHash, lastHash, transferHash);
 
                 // Update the last message hash for this user
                 userLastMessageHash.set(publicKey, transferHash);
@@ -255,6 +272,9 @@ wss.on('connection', (ws) => {
 
                 // Calculate the hash of this room creation for the chain
                 const roomCreationHash = calculateMessageHash('createRoom:' + roomName, publicKey, timestamp, prevHash);
+                
+                // Log hash chain state
+                logHashChainState(publicKey, 'createRoom', prevHash, lastHash, roomCreationHash);
 
                 // Update the last message hash for this user
                 userLastMessageHash.set(publicKey, roomCreationHash);
@@ -387,6 +407,9 @@ wss.on('connection', (ws) => {
 
                 // Calculate the hash of this transfer for the chain
                 const transferHash = calculateMessageHash('roomTokenTransfer:' + roomId + recipientPublicKey + amount, publicKey, timestamp, prevHash);
+                
+                // Log hash chain state
+                logHashChainState(publicKey, 'roomTokenTransfer', prevHash, lastHash, transferHash);
 
                 // Update the last message hash for this user
                 userLastMessageHash.set(publicKey, transferHash);
@@ -480,31 +503,57 @@ wss.on('connection', (ws) => {
                     console.log('Received:', prevHash);
                     return;
                 }
-
+                
                 // Calculate the hash of this message for the chain
                 const messageHash = calculateMessageHash(message, publicKey, timestamp, prevHash);
-
+                
+                // Log hash chain state
+                logHashChainState(publicKey, 'message', prevHash, lastHash, messageHash);
+                
                 // Update the last message hash for this user
                 userLastMessageHash.set(publicKey, messageHash);
-
-                const messageData = {
-                    message,
-                    publicKey,
-                    roomId: ws.currentRoom,
-                    messageHash // Include the message hash in the response
-                };
-
-                // Store message in room history
-                if (rooms.has(ws.currentRoom)) {
-                    rooms.get(ws.currentRoom).messages.push(messageData);
+                
+                // Store the message in the current room
+                const roomId = ws.currentRoom || 'general';
+                if (rooms.has(roomId)) {
+                    rooms.get(roomId).messages.push({
+                        message,
+                        publicKey,
+                        timestamp,
+                        messageHash
+                    });
                 }
 
                 // Broadcast valid messages to all clients in the same room
                 wss.clients.forEach(client => {
                     if (client.readyState === WebSocket.OPEN && client.currentRoom === ws.currentRoom) {
-                        client.send(JSON.stringify(messageData));
+                        client.send(JSON.stringify({
+                            message,
+                            publicKey,
+                            roomId: ws.currentRoom,
+                            messageHash
+                        }));
                     }
                 });
+            }
+
+            // Handle last message hash request
+            if (parsed.type === 'getLastMessageHash') {
+                const { publicKey } = parsed;
+                
+                // Get the last message hash for this user, or use initial hash if none exists
+                const lastHash = userLastMessageHash.get(publicKey) || '0000000000000000000000000000000000000000000000000000000000000000';
+                
+                console.log('Sending last message hash for', publicKey, ':', lastHash);
+                
+                // Send the last message hash to the client
+                ws.send(JSON.stringify({
+                    type: 'lastMessageHash',
+                    publicKey: publicKey,
+                    lastMessageHash: lastHash
+                }));
+                
+                return;
             }
         } catch (error) {
             console.error('Error processing message:', error);

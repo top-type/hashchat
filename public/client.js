@@ -15,11 +15,17 @@ let lastMessageHash = '000000000000000000000000000000000000000000000000000000000
 // Add WebSocket onopen handler to request room list when connection is established
 ws.onopen = () => {
     console.log('WebSocket connection established');
+    
     // Request room list when connection is established
     ws.send(JSON.stringify({
         type: 'getRoomList',
         publicKey: watchOnlyKey || (keyPair ? keyPair.getPublic('hex') : null)
     }));
+    
+    // Synchronize hash if we have a key
+    if (keyPair || watchOnlyKey) {
+        synchronizeLastMessageHash();
+    }
 };
 
 // Add WebSocket error and close handlers for better debugging
@@ -151,41 +157,40 @@ document.addEventListener('DOMContentLoaded', () => {
             alert('Please enter a passphrase');
             return;
         }
+        
         keyPair = deriveKeyFromPassphrase(passphrase);
         watchOnlyKey = null;
         document.getElementById('passphraseInput').value = '';
+        
         updateUIState();
         requestBalance();
-
-        // Request room list to refresh room token balances
-        ws.send(JSON.stringify({
-            type: 'getRoomList',
-            publicKey: keyPair ? keyPair.getPublic('hex') : null
-        }));
-
-        console.log('Key set from passphrase');
+        
+        // Synchronize the last message hash with the server
+        synchronizeLastMessageHash();
     };
 
     document.getElementById('setWatchOnlyBtn').onclick = () => {
-        const publicKeyHex = document.getElementById('watchOnlyInput').value;
+        const publicKey = document.getElementById('watchOnlyInput').value.trim();
+        if (!publicKey) {
+            alert('Please enter a public key');
+            return;
+        }
+        
         try {
             // Validate the public key
-            ec.keyFromPublic(publicKeyHex, 'hex');
-            watchOnlyKey = publicKeyHex;
+            ec.keyFromPublic(publicKey, 'hex');
+            
             keyPair = null;
+            watchOnlyKey = publicKey;
             document.getElementById('watchOnlyInput').value = '';
+            
             updateUIState();
             requestBalance();
-
-            // Request room list to refresh room token balances
-            ws.send(JSON.stringify({
-                type: 'getRoomList',
-                publicKey: watchOnlyKey
-            }));
-
-            console.log('Watch-only mode enabled');
+            
+            // Synchronize the last message hash with the server
+            synchronizeLastMessageHash();
         } catch (error) {
-            alert('Invalid public key');
+            alert('Invalid public key format');
         }
     };
 
@@ -205,175 +210,205 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     document.getElementById('sendBtn').onclick = () => {
-        const message = document.getElementById('messageInput').value.trim();
-        if (!message) return;
-
-        const timestamp = Date.now().toString();
+        // First synchronize the hash
+        synchronizeLastMessageHash();
         
-        if (keyPair) {
-            // Create signature with consistent format
-            const dataToSign = {
-                message,
-                timestamp,
-                prevHash: lastMessageHash
-            };
+        setTimeout(() => {
+            const message = document.getElementById('messageInput').value.trim();
+            if (!message) return;
+
+            const timestamp = Date.now().toString();
             
-            const signature = signData(dataToSign);
-            console.log('Generated signature for message:', signature);
-            sendSignedMessage(message, signature, timestamp, lastMessageHash);
-        } else if (watchOnlyKey) {
-            const pendingData = {
-                type: 'message',
-                data: {
+            if (keyPair) {
+                // Create signature with consistent format
+                const dataToSign = {
                     message,
                     timestamp,
                     prevHash: lastMessageHash
-                }
-            };
-            
-            pendingAction = pendingData;
-            
-            // Show the signature modal with consistently formatted message
-            document.getElementById('signatureMessage').textContent = prepareSignatureMessage(pendingData.data);
-            document.getElementById('signatureModal').style.display = 'block';
-        }
+                };
+                
+                const signature = signData(dataToSign);
+                console.log('Generated signature for message:', signature);
+                sendSignedMessage(message, signature, timestamp, lastMessageHash);
+            } else if (watchOnlyKey) {
+                const pendingData = {
+                    type: 'message',
+                    data: {
+                        message,
+                        timestamp,
+                        prevHash: lastMessageHash
+                    }
+                };
+                
+                pendingAction = pendingData;
+                
+                // Show the signature modal with consistently formatted message
+                document.getElementById('signatureMessage').textContent = prepareSignatureMessage(pendingData.data);
+                document.getElementById('signatureModal').style.display = 'block';
+            }
+        }, 500); // Wait for hash synchronization to complete
     };
 
     document.getElementById('createRoomBtn').onclick = () => {
-        const roomName = document.getElementById('newRoomInput').value.trim();
-        if (!roomName) {
-            alert('Please enter a room name');
-            return;
-        }
-
-        const timestamp = Date.now().toString();
+        // First synchronize the hash
+        synchronizeLastMessageHash();
         
-        if (keyPair) {
-            // Create signature with consistent format
-            const dataToSign = {
-                roomName,
-                timestamp,
-                prevHash: lastMessageHash
-            };
+        setTimeout(() => {
+            const roomName = document.getElementById('newRoomInput').value.trim();
+            if (!roomName) {
+                alert('Please enter a room name');
+                return;
+            }
+
+            const timestamp = Date.now().toString();
             
-            const signature = signData(dataToSign);
-            console.log('Generated signature for create room:', signature);
-            sendSignedCreateRoom(roomName, signature, timestamp, lastMessageHash);
-        } else if (watchOnlyKey) {
-            const pendingData = {
-                type: 'createRoom',
-                data: {
+            if (keyPair) {
+                // Create signature with consistent format
+                const dataToSign = {
                     roomName,
                     timestamp,
                     prevHash: lastMessageHash
-                }
-            };
-            
-            pendingAction = pendingData;
-            
-            // Show the signature modal with consistently formatted message
-            document.getElementById('signatureMessage').textContent = prepareSignatureMessage(pendingData.data);
-            document.getElementById('signatureModal').style.display = 'block';
-        }
+                };
+                
+                const signature = signData(dataToSign);
+                console.log('Generated signature for create room:', signature);
+                sendSignedCreateRoom(roomName, signature, timestamp, lastMessageHash);
+            } else if (watchOnlyKey) {
+                const pendingData = {
+                    type: 'createRoom',
+                    data: {
+                        roomName,
+                        timestamp,
+                        prevHash: lastMessageHash
+                    }
+                };
+                
+                pendingAction = pendingData;
+                
+                // Show the signature modal with consistently formatted message
+                document.getElementById('signatureMessage').textContent = prepareSignatureMessage(pendingData.data);
+                document.getElementById('signatureModal').style.display = 'block';
+            }
 
-        document.getElementById('newRoomInput').value = '';
+            document.getElementById('newRoomInput').value = '';
+        }, 500); // Wait for hash synchronization to complete
     };
 
     // Room token transfer
     const sendRoomTokenBtn = document.getElementById('sendRoomTokenBtn');
     sendRoomTokenBtn.onclick = () => {
-        const recipientPublicKey = document.getElementById('tokenRecipient').value.trim();
-        const amountStr = document.getElementById('tokenAmount').value.trim();
-
-        if (!recipientPublicKey || !amountStr) {
-            alert('Please enter recipient public key and amount');
-            return;
-        }
-
-        const amount = parseInt(amountStr, 10);
-        if (isNaN(amount) || amount <= 0) {
-            alert('Please enter a valid amount');
-            return;
-        }
-
-        // Prepare transfer data
-        const transferInfo = prepareTransferData('roomTokenTransfer', recipientPublicKey, amount, currentRoomId);
+        // First synchronize the hash
+        synchronizeLastMessageHash();
         
-        if (keyPair) {
-            // Create signature with consistent format
-            const dataToSign = {
-                roomId: currentRoomId,
-                recipientPublicKey,
-                amount,
-                timestamp: transferInfo.timestamp,
-                prevHash: lastMessageHash
-            };
+        setTimeout(() => {
+            const recipientPublicKey = document.getElementById('tokenRecipient').value.trim();
+            const amountStr = document.getElementById('tokenAmount').value.trim();
+
+            if (!recipientPublicKey || !amountStr) {
+                alert('Please enter recipient public key and amount');
+                return;
+            }
+
+            const amount = parseInt(amountStr, 10);
+            if (isNaN(amount) || amount <= 0) {
+                alert('Please enter a valid amount');
+                return;
+            }
+
+            // Prepare transfer data
+            const transferInfo = prepareTransferData('roomTokenTransfer', recipientPublicKey, amount, currentRoomId);
             
-            const signature = signData(dataToSign);
-            console.log('Generated signature for room token transfer:', signature);
-            sendSignedRoomTokenTransfer(
-                currentRoomId, 
-                recipientPublicKey, 
-                amount, 
-                signature, 
-                transferInfo.timestamp, 
-                lastMessageHash
-            );
-        } else if (watchOnlyKey) {
-            pendingAction = transferInfo;
-            
-            // Show the signature modal with consistently formatted message
-            document.getElementById('signatureMessage').textContent = prepareSignatureMessage(transferInfo.data);
-            document.getElementById('signatureModal').style.display = 'block';
-        } else {
-            alert('Please load or generate a key first');
-        }
+            if (keyPair) {
+                // Create signature with consistent format
+                const dataToSign = {
+                    roomId: currentRoomId,
+                    recipientPublicKey,
+                    amount,
+                    timestamp: transferInfo.timestamp,
+                    prevHash: lastMessageHash
+                };
+                
+                const signature = signData(dataToSign);
+                console.log('Generated signature for room token transfer:', signature);
+                sendSignedRoomTokenTransfer(
+                    currentRoomId, 
+                    recipientPublicKey, 
+                    amount, 
+                    signature, 
+                    transferInfo.timestamp, 
+                    lastMessageHash
+                );
+            } else if (watchOnlyKey) {
+                pendingAction = transferInfo;
+                
+                // Show the signature modal with consistently formatted message
+                document.getElementById('signatureMessage').textContent = prepareSignatureMessage(transferInfo.data);
+                document.getElementById('signatureModal').style.display = 'block';
+            } else {
+                alert('Please load or generate a key first');
+            }
+        }, 500); // Wait for hash synchronization to complete
+    };
+
+    // Add a synchronize button to the UI
+    document.getElementById('keyControls').innerHTML += `
+        <button id="syncHashBtn" style="margin-left: 10px;">Sync Hash</button>
+    `;
+    
+    // Add click handler for the sync button
+    document.getElementById('syncHashBtn').onclick = () => {
+        synchronizeLastMessageHash();
     };
 
     // Hash token transfer
     document.getElementById('transferBtn').onclick = () => {
-        const recipientPublicKey = document.getElementById('recipientPublicKey').value.trim();
-        const amountStr = document.getElementById('transferAmount').value.trim();
-
-        if (!recipientPublicKey || !amountStr) {
-            alert('Please enter a valid recipient and amount');
-            return;
-        }
-
-        const amount = parseInt(amountStr, 10);
-        if (isNaN(amount) || amount <= 0) {
-            alert('Please enter a valid amount');
-            return;
-        }
-
-        // Prepare transfer data
-        const transferInfo = prepareTransferData('transfer', recipientPublicKey, amount);
+        // First synchronize the hash
+        synchronizeLastMessageHash();
         
-        if (keyPair) {
-            // Create signature with consistent format
-            const dataToSign = {
-                recipientPublicKey,
-                amount,
-                timestamp: transferInfo.timestamp,
-                prevHash: lastMessageHash
-            };
+        setTimeout(() => {
+            const recipientPublicKey = document.getElementById('recipientPublicKey').value.trim();
+            const amountStr = document.getElementById('transferAmount').value.trim();
+
+            if (!recipientPublicKey || !amountStr) {
+                alert('Please enter a valid recipient and amount');
+                return;
+            }
+
+            const amount = parseInt(amountStr, 10);
+            if (isNaN(amount) || amount <= 0) {
+                alert('Please enter a valid amount');
+                return;
+            }
+
+            // Prepare transfer data
+            const transferInfo = prepareTransferData('transfer', recipientPublicKey, amount);
             
-            const signature = signData(dataToSign);
-            console.log('Generated signature for transfer:', signature);
-            sendSignedTransfer(
-                recipientPublicKey, 
-                amount, 
-                signature, 
-                transferInfo.timestamp, 
-                lastMessageHash
-            );
-        } else if (watchOnlyKey) {
-            pendingAction = transferInfo;
-            
-            // Show the signature modal with consistently formatted message
-            document.getElementById('signatureMessage').textContent = prepareSignatureMessage(transferInfo.data);
-            document.getElementById('signatureModal').style.display = 'block';
-        }
+            if (keyPair) {
+                // Create signature with consistent format
+                const dataToSign = {
+                    recipientPublicKey,
+                    amount,
+                    timestamp: transferInfo.timestamp,
+                    prevHash: lastMessageHash
+                };
+                
+                const signature = signData(dataToSign);
+                console.log('Generated signature for transfer:', signature);
+                sendSignedTransfer(
+                    recipientPublicKey, 
+                    amount, 
+                    signature, 
+                    transferInfo.timestamp, 
+                    lastMessageHash
+                );
+            } else if (watchOnlyKey) {
+                pendingAction = transferInfo;
+                
+                // Show the signature modal with consistently formatted message
+                document.getElementById('signatureMessage').textContent = prepareSignatureMessage(transferInfo.data);
+                document.getElementById('signatureModal').style.display = 'block';
+            }
+        }, 500); // Wait for hash synchronization to complete
     };
 });
 
@@ -491,6 +526,7 @@ function updateUIState() {
     document.getElementById('createRoomBtn').disabled = !hasKey;
     document.getElementById('sendRoomTokenBtn').disabled = !hasKey;
     document.getElementById('startMining').disabled = !hasKey;
+    document.getElementById('syncHashBtn').disabled = !hasKey;
     
     // Show/hide key controls based on whether a key is set
     document.getElementById('forgetKeyBtn').style.display = hasKey ? 'inline-block' : 'none';
@@ -502,6 +538,9 @@ function updateUIState() {
     if (hasKey) {
         const publicKey = keyPair ? keyPair.getPublic('hex') : watchOnlyKey;
         document.getElementById('publicKeyDisplay').textContent = `Public Key: ${publicKey}`;
+        
+        // Add current hash to debug info
+        document.getElementById('debugInfo').innerHTML += `Current lastMessageHash: ${lastMessageHash}\n`;
         
         // Request token balance for current room
         if (currentRoomId) {
@@ -661,6 +700,13 @@ ws.onmessage = (event) => {
                 console.log('Updating lastMessageHash from roomTokenBalance:', data.messageHash);
                 lastMessageHash = data.messageHash;
             }
+        } else if (data.type === 'lastMessageHash') {
+            // Update the last message hash from server
+            console.log('Received last message hash from server:', data.lastMessageHash);
+            document.getElementById('debugInfo').innerHTML += `Received last message hash: ${data.lastMessageHash}\n`;
+            
+            // Update the last message hash
+            lastMessageHash = data.lastMessageHash;
         } else if (data.messageHash) {
             // This is a regular chat message (no type field but has messageHash)
             const div = document.createElement('div');
@@ -732,14 +778,33 @@ function updateRoomList(rooms) {
 }
 
 function joinRoom(roomId) {
+    if (!rooms.has(roomId)) return;
+    
     currentRoomId = roomId;
+    
+    // Update UI to show current room
+    document.querySelectorAll('.room-item').forEach(button => {
+        if (button.getAttribute('data-room-id') === roomId) {
+            button.classList.add('active-room');
+        } else {
+            button.classList.remove('active-room');
+        }
+    });
+    
+    // Update current room display
+    document.getElementById('currentRoom').textContent = `Current Room: ${getRoomNameById(roomId)}`;
+    
+    // Request room history
     ws.send(JSON.stringify({
         type: 'joinRoom',
-        roomId
+        roomId: roomId
     }));
     
-    // Request token balance for this room
+    // Request room token balance
     requestRoomTokenBalance(roomId);
+    
+    // Synchronize the last message hash with the server
+    synchronizeLastMessageHash();
 }
 
 function requestRoomTokenBalance(roomId) {
@@ -803,4 +868,17 @@ function prepareTransferData(type, recipientPublicKey, amount, roomId = null) {
         data,
         timestamp
     };
+}
+
+// Add this function after the other utility functions
+function synchronizeLastMessageHash() {
+    if (!keyPair && !watchOnlyKey) return;
+    
+    const publicKey = keyPair ? keyPair.getPublic('hex') : watchOnlyKey;
+    console.log('Requesting hash synchronization for public key:', publicKey);
+    
+    ws.send(JSON.stringify({
+        type: 'getLastMessageHash',
+        publicKey: publicKey
+    }));
 } 
