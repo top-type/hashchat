@@ -436,7 +436,7 @@ function requestBalance() {
 }
 
 function resetBalance() {
-    // Balance display has been removed, so we don't need to update it
+    document.getElementById('balance').textContent = 'Balance: 0 Hash';
     console.log('Balance reset');
 }
 
@@ -510,7 +510,8 @@ ws.onmessage = (event) => {
                 mine(currentPuzzle, publicKey, currentDifficulty);
             }
         } else if (data.type === 'balance') {
-            // Balance display has been removed, just log the update
+            // Update balance display
+            document.getElementById('balance').textContent = `Balance: ${data.balance} Hash`;
             console.log(`Balance updated: ${data.balance} Hash`);
             document.getElementById('debugInfo').innerHTML += `Balance updated: ${data.balance} Hash\n`;
         } else if (data.type === 'roomList') {
