@@ -155,7 +155,14 @@ wss.on('connection', (ws) => {
                 const lastHash = userLastMessageHash.get(publicKey) || '0000000000000000000000000000000000000000000000000000000000000000';
 
                 // Ensure all values are properly converted to strings for verification
-                const messageToVerify = recipientPublicKey + amount.toString() + timestamp.toString() + prevHash;
+                // The order must match the client-side order in the signData function
+                const messageToVerify = [
+                    recipientPublicKey,
+                    amount,
+                    timestamp,
+                    prevHash
+                ].map(String).join('');
+                
                 console.log('Verifying transfer signature with message:', messageToVerify);
                 console.log('Signature:', signature);
                 console.log('Public key:', publicKey);
@@ -213,22 +220,36 @@ wss.on('connection', (ws) => {
                 return;
             }
 
-            // Handle room creation
+            // Handle create room
             if (parsed.type === 'createRoom') {
-                const { roomName, signature, publicKey, timestamp, prevHash } = parsed;
+                const { roomName, timestamp, signature, publicKey, prevHash } = parsed;
 
                 // Get the last message hash for this user, or use initial hash if none exists
                 const lastHash = userLastMessageHash.get(publicKey) || '0000000000000000000000000000000000000000000000000000000000000000';
 
-                // Verify the room creation request
-                if (!verifySignature(roomName + timestamp + prevHash, signature, publicKey)) {
-                    console.log('Invalid room creation signature rejected');
+                // Ensure all values are properly converted to strings for verification
+                // The order must match the client-side order in the signData function
+                const messageToVerify = [
+                    roomName,
+                    timestamp,
+                    prevHash
+                ].map(String).join('');
+                
+                console.log('Verifying create room signature with message:', messageToVerify);
+                console.log('Signature:', signature);
+                console.log('Public key:', publicKey);
+
+                // Verify the create room request
+                if (!verifySignature(messageToVerify, signature, publicKey)) {
+                    console.log('Invalid create room signature rejected');
                     return;
                 }
 
                 // Verify the previous hash matches what we have stored
                 if (prevHash !== lastHash) {
-                    console.log('Invalid room creation chain: previous hash mismatch');
+                    console.log('Invalid create room chain: previous hash mismatch');
+                    console.log('Expected:', lastHash);
+                    console.log('Received:', prevHash);
                     return;
                 }
 
@@ -322,8 +343,22 @@ wss.on('connection', (ws) => {
                 // Get the last message hash for this user, or use initial hash if none exists
                 const lastHash = userLastMessageHash.get(publicKey) || '0000000000000000000000000000000000000000000000000000000000000000';
 
+                // Ensure all values are properly converted to strings for verification
+                // The order must match the client-side order in the signData function
+                const messageToVerify = [
+                    roomId,
+                    recipientPublicKey,
+                    amount,
+                    timestamp,
+                    prevHash
+                ].map(String).join('');
+                
+                console.log('Verifying room token transfer signature with message:', messageToVerify);
+                console.log('Signature:', signature);
+                console.log('Public key:', publicKey);
+
                 // Verify the transfer request
-                if (!verifySignature(roomId + recipientPublicKey + amount + timestamp + prevHash, signature, publicKey)) {
+                if (!verifySignature(messageToVerify, signature, publicKey)) {
                     console.log('Invalid room token transfer signature rejected');
                     return;
                 }
@@ -413,48 +448,64 @@ wss.on('connection', (ws) => {
                 return;
             }
 
-            // Handle regular chat messages
-            const { message, signature, publicKey, timestamp, prevHash } = parsed;
-
-            // Get the last message hash for this user, or use initial hash if none exists
-            const lastHash = userLastMessageHash.get(publicKey) || '0000000000000000000000000000000000000000000000000000000000000000';
-
-            // Verify the message+timestamp+prevHash combination
-            if (!verifySignature(message + timestamp + prevHash, signature, publicKey)) {
-                console.log('Invalid signature rejected');
-                return;
-            }
-
-            // Verify the previous hash matches what we have stored
-            if (prevHash !== lastHash) {
-                console.log('Invalid message chain: previous hash mismatch');
-                return;
-            }
-
-            // Calculate the hash of this message for the chain
-            const messageHash = calculateMessageHash(message, publicKey, timestamp, prevHash);
-
-            // Update the last message hash for this user
-            userLastMessageHash.set(publicKey, messageHash);
-
-            const messageData = {
-                message,
-                publicKey,
-                roomId: ws.currentRoom,
-                messageHash // Include the message hash in the response
-            };
-
-            // Store message in room history
-            if (rooms.has(ws.currentRoom)) {
-                rooms.get(ws.currentRoom).messages.push(messageData);
-            }
-
-            // Broadcast valid messages to all clients in the same room
-            wss.clients.forEach(client => {
-                if (client.readyState === WebSocket.OPEN && client.currentRoom === ws.currentRoom) {
-                    client.send(JSON.stringify(messageData));
+            // Handle chat message
+            if (parsed.type === 'message') {
+                const { message, signature, publicKey, timestamp, prevHash } = parsed;
+                
+                // Get the last message hash for this user, or use initial hash if none exists
+                const lastHash = userLastMessageHash.get(publicKey) || '0000000000000000000000000000000000000000000000000000000000000000';
+                
+                // Ensure all values are properly converted to strings for verification
+                // The order must match the client-side order in the signData function
+                const messageToVerify = [
+                    message,
+                    timestamp,
+                    prevHash
+                ].map(String).join('');
+                
+                console.log('Verifying message signature with message:', messageToVerify);
+                console.log('Signature:', signature);
+                console.log('Public key:', publicKey);
+                
+                // Verify the message signature
+                if (!verifySignature(messageToVerify, signature, publicKey)) {
+                    console.log('Invalid message signature rejected');
+                    return;
                 }
-            });
+                
+                // Verify the previous hash matches what we have stored
+                if (prevHash !== lastHash) {
+                    console.log('Invalid message chain: previous hash mismatch');
+                    console.log('Expected:', lastHash);
+                    console.log('Received:', prevHash);
+                    return;
+                }
+
+                // Calculate the hash of this message for the chain
+                const messageHash = calculateMessageHash(message, publicKey, timestamp, prevHash);
+
+                // Update the last message hash for this user
+                userLastMessageHash.set(publicKey, messageHash);
+
+                const messageData = {
+                    message,
+                    publicKey,
+                    roomId: ws.currentRoom,
+                    messageHash // Include the message hash in the response
+                };
+
+                // Store message in room history
+                if (rooms.has(ws.currentRoom)) {
+                    rooms.get(ws.currentRoom).messages.push(messageData);
+                }
+
+                // Broadcast valid messages to all clients in the same room
+                wss.clients.forEach(client => {
+                    if (client.readyState === WebSocket.OPEN && client.currentRoom === ws.currentRoom) {
+                        client.send(JSON.stringify(messageData));
+                    }
+                });
+            }
         } catch (error) {
             console.error('Error processing message:', error);
         }

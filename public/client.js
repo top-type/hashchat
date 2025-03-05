@@ -74,16 +74,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (pendingAction) {
             const { type, data } = pendingAction;
+            console.log('Processing pending action:', type, 'with data:', data);
+            
             if (type === 'message') {
                 sendSignedMessage(data.message, signature, data.timestamp, data.prevHash);
             } else if (type === 'transfer') {
-                // Ensure amount is properly converted to a number for the transfer
+                // Parse amount as integer
                 const amount = parseInt(data.amount, 10);
                 sendSignedTransfer(data.recipientPublicKey, amount, signature, data.timestamp, data.prevHash);
             } else if (type === 'createRoom') {
                 sendSignedCreateRoom(data.roomName, signature, data.timestamp, data.prevHash);
             } else if (type === 'roomTokenTransfer') {
-                // Ensure amount is properly converted to a number for the room token transfer
+                // Parse amount as integer
                 const amount = parseInt(data.amount, 10);
                 sendSignedRoomTokenTransfer(data.roomId, data.recipientPublicKey, amount, signature, data.timestamp, data.prevHash);
             }
@@ -203,40 +205,74 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     document.getElementById('sendBtn').onclick = () => {
-        const message = document.getElementById('messageInput').value;
+        const message = document.getElementById('messageInput').value.trim();
         if (!message) return;
 
         const timestamp = Date.now().toString();
+        
         if (keyPair) {
-            const signature = keyPair.sign(message + timestamp + lastMessageHash).toDER('hex');
+            // Create signature with consistent format
+            const dataToSign = {
+                message,
+                timestamp,
+                prevHash: lastMessageHash
+            };
+            
+            const signature = signData(dataToSign);
+            console.log('Generated signature for message:', signature);
             sendSignedMessage(message, signature, timestamp, lastMessageHash);
         } else if (watchOnlyKey) {
-            pendingAction = {
+            const pendingData = {
                 type: 'message',
-                data: { message, timestamp, prevHash: lastMessageHash }
+                data: {
+                    message,
+                    timestamp,
+                    prevHash: lastMessageHash
+                }
             };
-            document.getElementById('signatureMessage').textContent = message + timestamp + lastMessageHash;
+            
+            pendingAction = pendingData;
+            
+            // Show the signature modal with consistently formatted message
+            document.getElementById('signatureMessage').textContent = prepareSignatureMessage(pendingData.data);
             document.getElementById('signatureModal').style.display = 'block';
         }
     };
 
     document.getElementById('createRoomBtn').onclick = () => {
-        const roomName = document.getElementById('newRoomInput').value;
+        const roomName = document.getElementById('newRoomInput').value.trim();
         if (!roomName) {
             alert('Please enter a room name');
             return;
         }
 
         const timestamp = Date.now().toString();
+        
         if (keyPair) {
-            const signature = keyPair.sign(roomName + timestamp + lastMessageHash).toDER('hex');
+            // Create signature with consistent format
+            const dataToSign = {
+                roomName,
+                timestamp,
+                prevHash: lastMessageHash
+            };
+            
+            const signature = signData(dataToSign);
+            console.log('Generated signature for create room:', signature);
             sendSignedCreateRoom(roomName, signature, timestamp, lastMessageHash);
         } else if (watchOnlyKey) {
-            pendingAction = {
+            const pendingData = {
                 type: 'createRoom',
-                data: { roomName, timestamp, prevHash: lastMessageHash }
+                data: {
+                    roomName,
+                    timestamp,
+                    prevHash: lastMessageHash
+                }
             };
-            document.getElementById('signatureMessage').textContent = roomName + timestamp + lastMessageHash;
+            
+            pendingAction = pendingData;
+            
+            // Show the signature modal with consistently formatted message
+            document.getElementById('signatureMessage').textContent = prepareSignatureMessage(pendingData.data);
             document.getElementById('signatureModal').style.display = 'block';
         }
 
@@ -260,38 +296,34 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        const timestamp = Date.now();
-
+        // Prepare transfer data
+        const transferInfo = prepareTransferData('roomTokenTransfer', recipientPublicKey, amount, currentRoomId);
+        
         if (keyPair) {
-            // If we have a key pair, sign the message automatically
-            const messageToSign = currentRoomId + recipientPublicKey + amount + timestamp + lastMessageHash;
-            console.log('Signing message for room token transfer:', messageToSign);
-            const signature = keyPair.sign(messageToSign).toDER('hex');
-            console.log('Generated signature:', signature);
-            sendSignedRoomTokenTransfer(currentRoomId, recipientPublicKey, amount, signature, timestamp, lastMessageHash);
-
-            // Clear input fields
-            document.getElementById('tokenRecipient').value = '';
-            document.getElementById('tokenAmount').value = '';
-        } else if (watchOnlyKey) {
-            // Only show the modal in watch-only mode
-            const messageToSign = currentRoomId + recipientPublicKey + amount + timestamp + lastMessageHash;
-
-            // Set up the pending action
-            pendingAction = {
-                type: 'roomTokenTransfer',
-                data: {
-                    roomId: currentRoomId,
-                    recipientPublicKey: recipientPublicKey,
-                    amount: amount,
-                    timestamp: timestamp,
-                    prevHash: lastMessageHash
-                }
+            // Create signature with consistent format
+            const dataToSign = {
+                roomId: currentRoomId,
+                recipientPublicKey,
+                amount,
+                timestamp: transferInfo.timestamp,
+                prevHash: lastMessageHash
             };
-
-            // Show the signature modal
-            document.getElementById('signatureMessage').textContent = messageToSign;
-            document.getElementById('signatureInput').value = '';
+            
+            const signature = signData(dataToSign);
+            console.log('Generated signature for room token transfer:', signature);
+            sendSignedRoomTokenTransfer(
+                currentRoomId, 
+                recipientPublicKey, 
+                amount, 
+                signature, 
+                transferInfo.timestamp, 
+                lastMessageHash
+            );
+        } else if (watchOnlyKey) {
+            pendingAction = transferInfo;
+            
+            // Show the signature modal with consistently formatted message
+            document.getElementById('signatureMessage').textContent = prepareSignatureMessage(transferInfo.data);
             document.getElementById('signatureModal').style.display = 'block';
         } else {
             alert('Please load or generate a key first');
@@ -300,35 +332,46 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Hash token transfer
     document.getElementById('transferBtn').onclick = () => {
-        const recipientPublicKey = document.getElementById('recipientPublicKey').value;
-        const amount = parseInt(document.getElementById('transferAmount').value, 10);
+        const recipientPublicKey = document.getElementById('recipientPublicKey').value.trim();
+        const amountStr = document.getElementById('transferAmount').value.trim();
 
-        if (!recipientPublicKey || isNaN(amount) || amount <= 0) {
+        if (!recipientPublicKey || !amountStr) {
             alert('Please enter a valid recipient and amount');
             return;
         }
 
-        const timestamp = Date.now().toString();
+        const amount = parseInt(amountStr, 10);
+        if (isNaN(amount) || amount <= 0) {
+            alert('Please enter a valid amount');
+            return;
+        }
+
+        // Prepare transfer data
+        const transferInfo = prepareTransferData('transfer', recipientPublicKey, amount);
+        
         if (keyPair) {
-            // Create signature with the exact same format as the server expects
-            // Ensure we're using string concatenation for all values to match server verification
-            const dataToSign = recipientPublicKey + amount.toString() + timestamp + lastMessageHash;
-            console.log('Signing transfer data:', dataToSign);
-            const signature = keyPair.sign(dataToSign).toDER('hex');
-            console.log('Generated signature:', signature);
-            sendSignedTransfer(recipientPublicKey, amount, signature, timestamp, lastMessageHash);
-        } else if (watchOnlyKey) {
-            pendingAction = {
-                type: 'transfer',
-                data: {
-                    recipientPublicKey: recipientPublicKey,
-                    amount: amount,
-                    timestamp: timestamp,
-                    prevHash: lastMessageHash
-                }
+            // Create signature with consistent format
+            const dataToSign = {
+                recipientPublicKey,
+                amount,
+                timestamp: transferInfo.timestamp,
+                prevHash: lastMessageHash
             };
-            // Ensure we're using string concatenation for all values to match server verification
-            document.getElementById('signatureMessage').textContent = recipientPublicKey + amount.toString() + timestamp + lastMessageHash;
+            
+            const signature = signData(dataToSign);
+            console.log('Generated signature for transfer:', signature);
+            sendSignedTransfer(
+                recipientPublicKey, 
+                amount, 
+                signature, 
+                transferInfo.timestamp, 
+                lastMessageHash
+            );
+        } else if (watchOnlyKey) {
+            pendingAction = transferInfo;
+            
+            // Show the signature modal with consistently formatted message
+            document.getElementById('signatureMessage').textContent = prepareSignatureMessage(transferInfo.data);
             document.getElementById('signatureModal').style.display = 'block';
         }
     };
@@ -364,10 +407,19 @@ function sendSignedTransfer(recipientPublicKey, amount, signature, timestamp, pr
     const publicKey = keyPair ? keyPair.getPublic('hex') : watchOnlyKey;
     const prevHash = prevHashOverride || lastMessageHash;
 
+    console.log('Sending transfer with:', {
+        recipientPublicKey,
+        amount: String(amount),
+        timestamp,
+        signature,
+        publicKey,
+        prevHash
+    });
+
     ws.send(JSON.stringify({
         type: 'transfer',
         recipientPublicKey,
-        amount,
+        amount: String(amount),
         timestamp,
         signature,
         publicKey,
@@ -381,6 +433,14 @@ function sendSignedTransfer(recipientPublicKey, amount, signature, timestamp, pr
 function sendSignedCreateRoom(roomName, signature, timestamp, prevHashOverride) {
     const publicKey = keyPair ? keyPair.getPublic('hex') : watchOnlyKey;
     const prevHash = prevHashOverride || lastMessageHash;
+
+    console.log('Sending create room with:', {
+        roomName,
+        timestamp,
+        signature,
+        publicKey,
+        prevHash
+    });
 
     ws.send(JSON.stringify({
         type: 'createRoom',
@@ -396,13 +456,21 @@ function sendSignedRoomTokenTransfer(roomId, recipientPublicKey, amount, signatu
     const publicKey = keyPair ? keyPair.getPublic('hex') : watchOnlyKey;
     const prevHash = prevHashOverride || lastMessageHash;
     
-    console.log('Sending room token transfer with prevHash:', prevHash);
+    console.log('Sending room token transfer with:', {
+        roomId,
+        recipientPublicKey,
+        amount: String(amount),
+        timestamp,
+        signature,
+        publicKey,
+        prevHash
+    });
 
     ws.send(JSON.stringify({
         type: 'roomTokenTransfer',
         roomId,
         recipientPublicKey,
-        amount,
+        amount: String(amount),
         timestamp,
         signature,
         publicKey,
@@ -696,4 +764,43 @@ function getRoomNameById(roomId) {
         }
     }
     return roomId === 'general' ? 'General' : roomId;
+}
+
+// Utility function to sign data with consistent formatting
+function signData(dataObject) {
+    // Convert all values to strings and concatenate them in a consistent order
+    const stringifiedData = Object.values(dataObject).map(val => String(val)).join('');
+    console.log('Signing data:', stringifiedData, 'with data object:', dataObject);
+    
+    if (keyPair) {
+        return keyPair.sign(stringifiedData).toDER('hex');
+    }
+    return null;
+}
+
+// Utility function to prepare message for signature in watch-only mode
+function prepareSignatureMessage(dataObject) {
+    return Object.values(dataObject).map(val => String(val)).join('');
+}
+
+// Utility function to create a common data structure for token transfers
+function prepareTransferData(type, recipientPublicKey, amount, roomId = null) {
+    const timestamp = Date.now().toString();
+    const data = {
+        recipientPublicKey,
+        amount: amount.toString(),
+        timestamp,
+        prevHash: lastMessageHash
+    };
+    
+    // Add roomId for room token transfers
+    if (roomId) {
+        data.roomId = roomId;
+    }
+    
+    return {
+        type,
+        data,
+        timestamp
+    };
 } 
